@@ -1,32 +1,39 @@
-import { Component, OnInit } from "@angular/core";
-import { HttpClient } from "@angular/common/http";
-import { map } from "rxjs/operators";
+import { PostsService } from "./posts.service";
+import { Post } from "./post";
+import { Component, OnDestroy, OnInit } from "@angular/core";
+import { Subscriber, Subscription } from "rxjs";
+import { tap } from "rxjs/operators";
+import { HttpEventType } from "@angular/common/http";
 @Component({
   selector: "app-root",
   templateUrl: "./app.component.html",
   styleUrls: ["./app.component.css"],
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   loadedPosts = [];
-
-  constructor(private http: HttpClient) {}
+  isFetching = false;
+  error: string;
+  postSubscription!: Subscription;
+  constructor(private postService: PostsService) {}
 
   ngOnInit() {
     this.fetchPosts();
+    this.postSubscription = this.postService.postSubject.subscribe((data) => {
+      if (data === "success") {
+        this.fetchPosts();
+      } else {
+        this.error = data;
+      }
+    });
   }
 
-  onCreatePost(postData: { title: string; content: string }) {
+  onCreatePost(postData: Post) {
     // Send Http request
     // console.log(postData);
-
-    this.http
-      .post(
-        "https://maxi-complete-guide-default-rtdb.firebaseio.com/posts.json",
-        postData
-      )
-      .subscribe((responseData) => {
-        console.log(responseData);
-      });
+    this.postService.addPost(postData);
+    // .subscribe((data) => {
+    //   this.fetchPosts();
+    // });
   }
 
   onFetchPosts() {
@@ -36,25 +43,46 @@ export class AppComponent implements OnInit {
 
   onClearPosts() {
     // Send Http request
+    this.postService
+      .deletePosts()
+      .pipe(
+        tap((event) => {
+          console.log(event);
+          if (event.type === HttpEventType.Sent) {
+            console.log("from sent");
+            console.log(event.type);
+          }
+          if (event.type === HttpEventType.Response) {
+            console.log("from response");
+            console.log(event.body);
+          }
+        })
+      )
+      .subscribe((events) => {
+        // console.log(events.type);
+        this.fetchPosts();
+      });
+  }
+
+  onHandleError() {
+    this.error = null;
   }
 
   private fetchPosts() {
-    this.http
-      .get("https://maxi-complete-guide-default-rtdb.firebaseio.com/posts.json")
-      .pipe(
-        map((resposneData) => {
-          const postsArray = [];
-          for (const key in resposneData) {
-            console.log(resposneData[key]);
-            if (resposneData.hasOwnProperty(key)) {
-              postsArray.push({ ...resposneData[key], id: key });
-            }
-          }
-          return postsArray;
-        })
-      )
-      .subscribe((posts) => {
-        console.log(posts);
-      });
+    this.isFetching = true;
+    this.postService.fetchPosts().subscribe(
+      (posts) => {
+        this.loadedPosts = posts;
+        this.isFetching = false;
+      },
+      (error) => {
+        this.isFetching = false;
+        this.error = error.error.error;
+        console.log(this.error);
+      }
+    );
+  }
+  ngOnDestroy(): void {
+    this.postSubscription.unsubscribe();
   }
 }
